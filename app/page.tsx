@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { z } from "zod"
-import { ArrowRight, ChevronRight, Mail, Zap, Sparkles, Atom, AlertCircle, History } from "lucide-react"
+import { ArrowRight, ChevronRight, Mail, Zap, Sparkles, Atom, AlertCircle, History, Clock } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -10,6 +10,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { motion, AnimatePresence } from "framer-motion"
 import { saveQuizResponse, hasEmailResponded } from "@/lib/quiz-service"
 import { supabase, executeRawQuery } from "@/lib/supabase"
+import Link from "next/link"
 
 const emailSchema = z.string().email()
 
@@ -29,6 +30,9 @@ export default function PersonalityQuiz() {
   const [previousScore, setPreviousScore] = useState<number | null>(null)
   const [isSaving, setIsSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
+  const [timeRemaining, setTimeRemaining] = useState<{days: number, hours: number, minutes: number, seconds: number}>({
+    days: 0, hours: 0, minutes: 0, seconds: 0
+  })
 
   const questions = [
     "Prefiero tomar decisiones rápidamente, sin mucha consulta.",
@@ -163,19 +167,19 @@ export default function PersonalityQuiz() {
         }
         
         // Actualizar estados con resultado final
-        setScore(finalScore);
-        
+      setScore(finalScore);
+      
         // Guardar en Supabase
         try {
           console.log(`[GUARDAR] Guardando resultado: ${result} (${finalScore} puntos)`);
-          const success = await saveQuizResponse({
-            email: normalizedEmail,
+      const success = await saveQuizResponse({
+        email: normalizedEmail,
             answers: newAnswers,
-            score: finalScore,
+        score: finalScore,
             result: result
-          });
-          
-          if (!success) {
+      });
+
+      if (!success) {
             console.error("[GUARDAR] Error al guardar respuesta");
             setSaveError("Error al guardar respuestas");
           } else {
@@ -312,6 +316,46 @@ export default function PersonalityQuiz() {
       }}
     />
   ))
+
+  // Función para calcular tiempo hasta el próximo lunes
+  const calculateTimeToNextMonday = () => {
+    const now = new Date();
+    const dayOfWeek = now.getDay(); // 0 = Domingo, 1 = Lunes, etc.
+    
+    // Calcular días hasta el próximo lunes (si hoy es lunes, será 7 días)
+    const daysUntilNextMonday = dayOfWeek === 1 ? 7 : (8 - dayOfWeek) % 7;
+    
+    // Crear fecha del próximo lunes (a las 00:00:00)
+    const nextMonday = new Date(now);
+    nextMonday.setDate(now.getDate() + daysUntilNextMonday);
+    nextMonday.setHours(0, 0, 0, 0);
+    
+    // Calcular diferencia en milisegundos
+    const diffMs = nextMonday.getTime() - now.getTime();
+    
+    // Convertir a días, horas, minutos y segundos
+    const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    const hours = Math.floor((diffMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+    const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+    const seconds = Math.floor((diffMs % (1000 * 60)) / 1000);
+    
+    return { days, hours, minutes, seconds };
+  };
+  
+  // Actualizar temporizador cada segundo cuando estamos en la pantalla de resultados
+  useEffect(() => {
+    if (currentStep === 2) {
+      // Calcular tiempo inicial
+      setTimeRemaining(calculateTimeToNextMonday());
+      
+      // Actualizar cada segundo
+      const timer = setInterval(() => {
+        setTimeRemaining(calculateTimeToNextMonday());
+      }, 1000);
+      
+      return () => clearInterval(timer);
+    }
+  }, [currentStep]);
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-violet-900 to-slate-900 p-4 overflow-hidden relative">
@@ -710,14 +754,41 @@ export default function PersonalityQuiz() {
                 </div>
               </CardContent>
 
-              <CardFooter className="p-6 pt-0">
-                  <div className={`w-full py-6 text-lg font-bold rounded-xl bg-gradient-to-r ${getGradient()} text-white relative overflow-hidden flex items-center justify-center`}>
-                  <span className="relative z-10 flex items-center justify-center gap-2">
-                      Espera el siguiente bloque{" "}
-                      <ChevronRight className="ml-2" size={20} />
-                  </span>
-                    <span className="absolute inset-0 bg-black/20"></span>
+              <CardFooter className="p-6 pt-0 flex flex-col gap-6">
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.5 }}
+                  className="w-full bg-indigo-950 rounded-xl border border-indigo-800/50 overflow-hidden"
+                >
+                  <div className="p-5 text-center">
+                    <div className="flex justify-center mb-2">
+                      <Clock className="h-10 w-10 text-yellow-400" />
+                    </div>
+                    <h3 className="text-xl font-bold text-white mb-4">Próximo bloque disponible en:</h3>
+                    <div className="grid grid-cols-4 gap-2 mb-4">
+                      <div className="flex flex-col items-center">
+                        <div className="text-2xl font-bold text-white">{timeRemaining.days}</div>
+                        <div className="text-xs text-white/60">días</div>
+                      </div>
+                      <div className="flex flex-col items-center">
+                        <div className="text-2xl font-bold text-white">{timeRemaining.hours}</div>
+                        <div className="text-xs text-white/60">horas</div>
+                      </div>
+                      <div className="flex flex-col items-center">
+                        <div className="text-2xl font-bold text-white">{timeRemaining.minutes}</div>
+                        <div className="text-xs text-white/60">minutos</div>
+                      </div>
+                      <div className="flex flex-col items-center">
+                        <div className="text-2xl font-bold text-white">{timeRemaining.seconds}</div>
+                        <div className="text-xs text-white/60">segundos</div>
+                      </div>
+                    </div>
+                    <p className="text-white/80 text-sm">
+                      ¡Nuevos bloques disponibles cada lunes!
+                    </p>
                   </div>
+                </motion.div>
               </CardFooter>
             </Card>
             )}
