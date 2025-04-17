@@ -107,185 +107,172 @@ export default function PersonalityQuiz() {
   };
 
   const handleAnswer = async (value: number) => {
-    console.log(`[RESPUESTA] Iniciando proceso de respuesta para la pregunta ${currentQuestion + 1}, valor: ${value}`);
+    console.log(`[RESPUESTA] Pregunta ${currentQuestion + 1}, valor: ${value}`);
     
     try {
       const normalizedEmail = email.toLowerCase().trim();
       
-      // Verificar que el correo sea de arkusnexus.com
+      // Validaciones básicas
       if (!normalizedEmail.endsWith('@arkusnexus.com')) {
-        console.log(`[RESPUESTA] Email no válido (no es @arkusnexus.com): ${normalizedEmail}`);
         setEmailError("Por favor, utiliza un correo con dominio @arkusnexus.com");
         safeSetCurrentStep(0);
         return;
       }
       
-      // Verificar que el correo no haya respondido antes usando la función de servicio
-      console.log(`[RESPUESTA] Verificando mediante servicio si el email ya existe: ${normalizedEmail}`);
-      
+      // Verificar email en BD
       const emailExists = await hasEmailResponded(normalizedEmail);
-      
       if (emailExists) {
-        console.log(`[RESPUESTA] BLOQUEANDO - Email ya ha respondido anteriormente: ${normalizedEmail}`);
-        
         setHasAlreadyResponded(true);
         setShowRespondedMessage(true);
         setEmailError("Un email similar ya ha respondido el quiz anteriormente.");
         safeSetCurrentStep(0);
         return;
-      } else {
-        console.log(`[RESPUESTA] Verificación OK - Email no encontrado en BD: ${normalizedEmail}`);
       }
       
-      // Si llegamos aquí, el correo no existe en la base de datos, puede continuar
-      console.log(`[RESPUESTA] Registrando respuesta: valor=${value} para pregunta=${currentQuestion + 1}`);
-      
+      // Registrar respuesta actual
       const newAnswers = [...answers, value];
       setAnswers(newAnswers);
+      
+      // Calcular puntaje acumulado hasta ahora
+      const currentTotal = newAnswers.reduce((sum, val) => sum + val, 0);
+      console.log(`[RESPUESTA] Puntaje actual acumulado: ${currentTotal} (Respuestas: ${JSON.stringify(newAnswers)})`);
 
       if (currentQuestion < questions.length - 1) {
-        console.log(`[RESPUESTA] Avanzando a pregunta ${currentQuestion + 2}`);
+        // Avanzar a siguiente pregunta
         setCurrentQuestion(currentQuestion + 1);
       } else {
-        // Calculate final score
-        const totalScore = newAnswers.reduce((sum, current) => sum + current, 0);
-        console.log(`[RESPUESTA] Quiz completado. Puntuación final: ${totalScore}`);
-        setScore(totalScore);
+        // Quiz completo - calcular resultado final
+        const finalScore = newAnswers.reduce((sum, val) => sum + val, 0);
+        console.log(`[RESULTADO FINAL] Puntaje total: ${finalScore}`);
+        console.log(`[RESULTADO FINAL] Respuestas completas: ${JSON.stringify(newAnswers)}`);
+        
+        // Determinar tipo de cerveza basado en puntaje
+        let result;
+        if (finalScore >= 17) {
+          result = "Red Ale Intensa";
+          console.log(`[RESULTADO FINAL] ${finalScore} puntos = RED ALE INTENSA`);
+        } else if (finalScore >= 13) {
+          result = "IPA Amarga";
+          console.log(`[RESULTADO FINAL] ${finalScore} puntos = IPA AMARGA`);
+        } else if (finalScore >= 9) {
+          result = "Cerveza artesanal suave";
+          console.log(`[RESULTADO FINAL] ${finalScore} puntos = CERVEZA ARTESANAL`);
+        } else {
+          result = "Cerveza dorada ligera";
+          console.log(`[RESULTADO FINAL] ${finalScore} puntos = CERVEZA LIGERA`);
+        }
+        
+        // Actualizar estados con resultado final
+        setScore(finalScore);
+        
+        // Guardar en Supabase
+        try {
+          console.log(`[GUARDAR] Guardando resultado: ${result} (${finalScore} puntos)`);
+          const success = await saveQuizResponse({
+            email: normalizedEmail,
+            answers: newAnswers,
+            score: finalScore,
+            result: result
+          });
+          
+          if (!success) {
+            console.error("[GUARDAR] Error al guardar respuesta");
+            setSaveError("Error al guardar respuestas");
+          } else {
+            console.log("[GUARDAR] Guardado exitoso");
+          }
+        } catch (e) {
+          console.error("[GUARDAR] Error:", e);
+          setSaveError("Error inesperado al guardar");
+        }
+        
+        // Mostrar resultados
         safeSetCurrentStep(2);
-        
-        // Guardar respuestas en Supabase
-        console.log(`[RESPUESTA] Iniciando proceso de guardado de resultados`);
-        saveResponseToSupabase();
       }
     } catch (error) {
-      console.error("[RESPUESTA] Error general:", error);
-      setEmailError("Error al procesar la respuesta. Por favor, intenta nuevamente.");
-      safeSetCurrentStep(0);
+      console.error("[ERROR] General:", error);
+      setEmailError("Error al procesar. Intenta nuevamente.");
     }
   };
 
-  // Función para calcular el puntaje final basado en las respuestas
-  const calculateScore = (responses: number[]): number => {
-    return responses.reduce((total, value) => total + value, 0);
-  };
-
-  // Función para determinar el tipo de personalidad basado en el puntaje
-  const determinePersonalityType = (score: number): string => {
-    if (score >= 17) return "Red Ale Intensa";
-    else if (score >= 13) return "IPA Amarga";
-    else if (score >= 9) return "Cerveza artesanal suave";
-    else return "Cerveza dorada ligera";
-  };
-
-  const saveResponseToSupabase = async () => {
-    console.log('[GUARDAR] Iniciando proceso de guardado de quiz completo');
-    setIsSaving(true);
-    setSaveError(null);
-    
-    try {
-      const normalizedEmail = email.toLowerCase().trim();
-      
-      // Verificar que el correo sea de arkusnexus.com
-      if (!normalizedEmail.endsWith('@arkusnexus.com')) {
-        console.log(`[GUARDAR] Email no válido (no es @arkusnexus.com): ${normalizedEmail}`);
-        setEmailError("Por favor, utiliza un correo con dominio @arkusnexus.com");
-        setIsSaving(false);
-        safeSetCurrentStep(0);
-        return;
-      }
-      
-      // Calculación final del score
-      const finalScore = calculateScore(answers);
-      const finalResult = determinePersonalityType(finalScore);
-      
-      console.log(`[GUARDAR] Datos a guardar: email=${normalizedEmail}, score=${finalScore}, result=${finalResult}`);
-      console.log(`[GUARDAR] Respuestas: ${JSON.stringify(answers)}`);
-      
-      // Verificar una última vez mediante el servicio antes de guardar
-      console.log(`[GUARDAR] Verificación final antes de guardar...`);
-      
-      const emailExists = await hasEmailResponded(normalizedEmail);
-      
-      if (emailExists) {
-        console.log(`[GUARDAR] BLOQUEANDO - Email ya ha respondido anteriormente: ${normalizedEmail}`);
-        
-        setHasAlreadyResponded(true);
-        setShowRespondedMessage(true);
-        setEmailError("Un email similar ya ha respondido el quiz anteriormente.");
-        setIsSaving(false);
-        safeSetCurrentStep(0);
-        return;
-      }
-
-      console.log(`[GUARDAR] Verificación OK - Enviando datos a servicio...`);
-      
-      // Establecer primero el score y resultado para que estén disponibles en la pantalla final
-      setScore(finalScore);
-      
-      // Guardar usando la función del servicio
-      const success = await saveQuizResponse({
-        email: normalizedEmail,
-        answers: answers,
-        score: finalScore,
-        result: finalResult
-      });
-
-      if (!success) {
-        console.error('[GUARDAR] Error al guardar la respuesta a través del servicio');
-        setSaveError("Error al guardar las respuestas. Por favor, intenta nuevamente.");
-        setIsSaving(false);
-        return;
-      }
-
-      console.log('[GUARDAR] ¡Respuesta guardada exitosamente!');
-      
-      // Actualizar estados
-      setHasAlreadyResponded(true);
-      setIsSaving(false);
-      setCurrentStep(2); // Paso de resultados
-    } catch (error) {
-      console.error('[GUARDAR] Error imprevisto:', error);
-      setSaveError("Error inesperado al guardar. Por favor, intenta nuevamente.");
-      setIsSaving(false);
-    }
-  };
-
+  // Funciones simplificadas para obtener resultados basados DIRECTAMENTE en el puntaje
   const getBeer = () => {
-    if (score >= 17) return "Red Ale Intensa"
-    if (score >= 13) return "IPA Amarga"
-    if (score >= 9) return "Cerveza artesanal suave"
-    return "Cerveza dorada ligera"
+    // Forzar recálculo del puntaje desde las respuestas para evitar problemas de estado
+    const calculatedScore = answers.reduce((sum, val) => sum + val, 0);
+    console.log(`[getBeer] Puntaje del estado: ${score}, Puntaje calculado: ${calculatedScore}`);
+    
+    // Usar el puntaje calculado para mayor precisión
+    const finalScore = calculatedScore > 0 ? calculatedScore : score;
+    
+    if (finalScore >= 17) {
+      console.log(`[getBeer] ${finalScore} puntos = RED ALE INTENSA`);
+      return "Red Ale Intensa";
+    }
+    if (finalScore >= 13) {
+      console.log(`[getBeer] ${finalScore} puntos = IPA AMARGA`);
+      return "IPA Amarga";
+    } 
+    if (finalScore >= 9) {
+      console.log(`[getBeer] ${finalScore} puntos = CERVEZA ARTESANAL`);
+      return "Cerveza artesanal suave";
+    }
+    console.log(`[getBeer] ${finalScore} puntos = CERVEZA LIGERA`);
+    return "Cerveza dorada ligera";
   }
 
   const getDescription = () => {
-    if (score >= 17) return "Directo, decidido, nada te detiene."
-    if (score >= 13) return "Valiente, resolutiva, independiente."
-    if (score >= 9) return "Actúas cuando se necesita, con mesura."
-    return "Prefieres evitar conflictos, avanzas a tu ritmo."
+    // Forzar recálculo del puntaje desde las respuestas para evitar problemas de estado
+    const calculatedScore = answers.reduce((sum, val) => sum + val, 0);
+    const finalScore = calculatedScore > 0 ? calculatedScore : score;
+    
+    if (finalScore >= 17) return "Directo, decidido, nada te detiene.";
+    if (finalScore >= 13) return "Valiente, resolutiva, independiente.";
+    if (finalScore >= 9) return "Actúas cuando se necesita, con mesura.";
+    return "Prefieres evitar conflictos, avanzas a tu ritmo.";
   }
 
   const getBeerEmoji = () => {
-    if (score >= 17) return "🍺"
-    if (score >= 13) return "🍻"
-    if (score >= 9) return "🥂"
-    return "🍹"
+    // Forzar recálculo del puntaje desde las respuestas para evitar problemas de estado
+    const calculatedScore = answers.reduce((sum, val) => sum + val, 0);
+    const finalScore = calculatedScore > 0 ? calculatedScore : score;
+    
+    if (finalScore >= 17) return "🍺";
+    if (finalScore >= 13) return "🍻";
+    if (finalScore >= 9) return "🥂";
+    return "🍹";
   }
 
   const getGradient = () => {
-    if (score >= 17) return "from-fuchsia-600 via-purple-600 to-indigo-600"
-    if (score >= 13) return "from-orange-500 via-amber-500 to-yellow-500"
-    if (score >= 9) return "from-emerald-500 via-teal-500 to-cyan-500"
-    return "from-rose-500 via-pink-500 to-fuchsia-500"
+    // Forzar recálculo del puntaje desde las respuestas para evitar problemas de estado
+    const calculatedScore = answers.reduce((sum, val) => sum + val, 0);
+    const finalScore = calculatedScore > 0 ? calculatedScore : score;
+    
+    if (finalScore >= 17) return "from-fuchsia-600 via-purple-600 to-indigo-600";
+    if (finalScore >= 13) return "from-orange-500 via-amber-500 to-yellow-500";
+    if (finalScore >= 9) return "from-emerald-500 via-teal-500 to-cyan-500";
+    return "from-rose-500 via-pink-500 to-fuchsia-500";
   }
 
   const getBeerGif = () => {
-    if (score >= 17)
-      return "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExcWJtZnRtZXRxZnRqcnRxZnRqcnRxZnRqcnRxZnRqcnRxZnRqcnRxZnRqcnRxZnRqcnRxZnRqcnRxZnRqcnRxZnRqcnRxZnRqcg/3o7btZDbB1xfuYKQne/giphy.gif" // Imperial Stout
-    if (score >= 13)
-      return "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExcWJtZnRtZXRxZnRqcnRxZnRqcnRxZnRqcnRxZnRqcnRxZnRqcnRxZnRqcg/YrMrSUfeh5do2FISt8/giphy.gif" // Red Ale
-    if (score >= 9)
-      return "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExcWJtZnRtZXRxZnRqcnRxZnRqcnRxZnRqcnRxZnRqcnRxZnRqcnRxZnRqcg/3o7btQsLqXMJAPu6Na/giphy.gif" // IPA
-    return "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExcWJtZnRtZXRxZnRqcnRxZnRqcnRxZnRqcnRxZnRqcnRxZnRqcnRxZnRqcg/l2JJyLbhqCF4va86c/giphy.gif" // Lager
+    // Forzar recálculo del puntaje desde las respuestas para evitar problemas de estado
+    const calculatedScore = answers.reduce((sum, val) => sum + val, 0);
+    const finalScore = calculatedScore > 0 ? calculatedScore : score;
+    
+    console.log(`[getBeerGif] Puntaje para imagen: ${finalScore}`);
+    if (finalScore >= 17) {
+      console.log(`[getBeerGif] Mostrando RED ALE`);
+      return "https://i.imgur.com/6X80hUN.jpg"; // Red Ale
+    }
+    if (finalScore >= 13) {
+      console.log(`[getBeerGif] Mostrando IPA`);
+      return "https://i.imgur.com/x5p904a.jpg"; // IPA - nueva imagen proporcionada
+    }
+    if (finalScore >= 9) {
+      console.log(`[getBeerGif] Mostrando ARTESANAL`);
+      return "https://i.imgur.com/jqhf6px.jpg"; // Cerveza artesanal suave - nueva imagen
+    }
+    console.log(`[getBeerGif] Mostrando LIGERA`);
+    return "https://i.imgur.com/B0zgT7J.jpg"; // Cerveza dorada ligera - nueva imagen
   }
 
   // Partículas flotantes para el fondo
